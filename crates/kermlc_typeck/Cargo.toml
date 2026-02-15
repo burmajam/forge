@@ -4,3 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+kermlc_intern = { workspace = true }
+kermlc_diagnostics = { workspace = true }
+kermlc_hir = { workspace = true }
+
+[dev-dependencies]
+kermlc_parser = { workspace = true }
+kermlc_resolve = { workspace = true }
