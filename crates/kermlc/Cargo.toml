@@ -13,3 +13,4 @@ kermlc_resolve = { workspace = true }
 kermlc_typeck = { workspace = true }
 kermlc_validate = { workspace = true }
 kermlc_serial_json = { workspace = true }
+clap = { version = "4", features = ["derive"] }
