@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kermlc",
+    "crates/kermlc_intern",
+    "crates/kermlc_diagnostics",
+    "crates/kermlc_ast",
+    "crates/kermlc_lexer",
+    "crates/kermlc_parser",
+    "crates/kermlc_hir",
+    "crates/kermlc_resolve",
+    "crates/kermlc_typeck",
+    "crates/kermlc_validate",
+    "crates/kermlc_serial_json",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+kermlc_intern = { path = "crates/kermlc_intern" }
+kermlc_diagnostics = { path = "crates/kermlc_diagnostics" }
+kermlc_ast = { path = "crates/kermlc_ast" }
+kermlc_lexer = { path = "crates/kermlc_lexer" }
+kermlc_parser = { path = "crates/kermlc_parser" }
+kermlc_hir = { path = "crates/kermlc_hir" }
+kermlc_resolve = { path = "crates/kermlc_resolve" }
+kermlc_typeck = { path = "crates/kermlc_typeck" }
+kermlc_validate = { path = "crates/kermlc_validate" }
+kermlc_serial_json = { path = "crates/kermlc_serial_json" }

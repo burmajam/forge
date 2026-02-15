@@ -1,0 +1,6 @@
+[package]
+name = "kermlc_resolve"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -1,0 +1,6 @@
+[package]
+name = "kermlc_intern"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

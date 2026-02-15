@@ -1,0 +1,6 @@
+[package]
+name = "kermlc_diagnostics"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

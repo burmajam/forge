@@ -1,0 +1,6 @@
+[package]
+name = "kermlc_serial_json"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
