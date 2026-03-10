@@ -26,7 +26,10 @@ All items shipped, pipeline works end-to-end.
 
 ### A. Compiler Depth (deepen existing pipeline)
 
-- [ ] A1: Full conjugation — input/output direction flipping
+- [ ] A1: Full conjugation — input/output direction flipping (type-level, explicit form)
+- [ ] A1a: Named conjugation declarations — `conjugation c1 conjugate X conjugates Y;`
+- [ ] A1b: Feature-level conjugation — `feature g ~ B::f;`
+- [ ] A1c: Inline conjugated type refs — `feature port : ~FuelPort;` (anonymous type synthesis)
 - [ ] A2: Expression evaluation — Star, Name, BinOp in multiplicity
 - [ ] A3: Feature chaining resolution — type-directed chain walking (a.b.c)
 - [ ] A4: Diamond inheritance — ordering-independent membership dedup
