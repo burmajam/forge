@@ -1,6 +1,6 @@
 # kermlc Progress Tracker
 
-Last updated: 2026-03-10
+Last updated: 2026-03-10 (A1 complete)
 
 ## Milestone 1 — Complete
 
@@ -22,11 +22,11 @@ All items shipped, pipeline works end-to-end.
 - [x] CLI: check + compile commands (kermlc)
 - [x] Integration tests — 7 fixtures (kermlc)
 
-## Post-Milestone 1 — Not Started
+## Post-Milestone 1 — In Progress
 
 ### A. Compiler Depth (deepen existing pipeline)
 
-- [ ] A1: Full conjugation — input/output direction flipping (type-level, explicit form)
+- [x] A1: Full conjugation — input/output direction flipping (type-level, explicit form) — 7cc1069
 - [ ] A1a: Named conjugation declarations — `conjugation c1 conjugate X conjugates Y;`
 - [ ] A1b: Feature-level conjugation — `feature g ~ B::f;`
 - [ ] A1c: Inline conjugated type refs — `feature port : ~FuelPort;` (anonymous type synthesis)
