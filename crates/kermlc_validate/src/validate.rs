@@ -1,5 +1,5 @@
 use kermlc_diagnostics::{Diagnostic, DiagnosticSink, Label};
-use kermlc_hir::{Bound, DefId, DefKind, SemanticModel};
+use kermlc_hir::{DefId, DefKind, MultBound, SemanticModel};
 use kermlc_intern::StringInterner;
 
 /// Run semantic validation on a fully resolved model.
@@ -242,17 +242,18 @@ fn validate_feature(
 
     // Validate multiplicity bounds
     if let Some(mult) = &def.multiplicity {
-        match mult.upper {
-            Bound::Exact(upper) if mult.lower > upper => {
+        if let (MultBound::Exact(lower), MultBound::Exact(upper)) =
+            (&mult.lower, &mult.upper)
+        {
+            if lower > upper {
                 sink.emit(
                     Diagnostic::error(format!(
                         "multiplicity lower bound ({}) exceeds upper bound ({})",
-                        mult.lower, upper
+                        lower, upper
                     ))
                     .with_label(Label::primary(mult.span, "invalid multiplicity")),
                 );
             }
-            _ => {}
         }
     }
 
@@ -295,21 +296,25 @@ fn validate_redefinition_multiplicity(
     };
 
     // Check: redefining lower bound must be >= original lower bound
-    if redef_mult.lower < orig_mult.lower {
-        let name = interner.resolve(redef.name);
-        sink.emit(
-            Diagnostic::warning(format!(
-                "redefined feature `{}` narrows lower multiplicity bound from {} to {}",
-                name, orig_mult.lower, redef_mult.lower
-            ))
-            .with_label(Label::primary(redef_mult.span, "redefined here"))
-            .with_label(Label::secondary(orig_mult.span, "original multiplicity")),
-        );
+    if let (MultBound::Exact(redef_lo), MultBound::Exact(orig_lo)) =
+        (&redef_mult.lower, &orig_mult.lower)
+    {
+        if redef_lo < orig_lo {
+            let name = interner.resolve(redef.name);
+            sink.emit(
+                Diagnostic::warning(format!(
+                    "redefined feature `{}` narrows lower multiplicity bound from {} to {}",
+                    name, orig_lo, redef_lo
+                ))
+                .with_label(Label::primary(redef_mult.span, "redefined here"))
+                .with_label(Label::secondary(orig_mult.span, "original multiplicity")),
+            );
+        }
     }
 
     // Check: redefining upper bound must be <= original upper bound
-    match (redef_mult.upper, orig_mult.upper) {
-        (Bound::Unbounded, Bound::Exact(_)) => {
+    match (&redef_mult.upper, &orig_mult.upper) {
+        (MultBound::Unbounded, MultBound::Exact(_)) => {
             let name = interner.resolve(redef.name);
             sink.emit(
                 Diagnostic::error(format!(
@@ -320,7 +325,7 @@ fn validate_redefinition_multiplicity(
                 .with_label(Label::secondary(orig_mult.span, "original multiplicity")),
             );
         }
-        (Bound::Exact(r), Bound::Exact(o)) if r > o => {
+        (MultBound::Exact(r), MultBound::Exact(o)) if r > o => {
             let name = interner.resolve(redef.name);
             sink.emit(
                 Diagnostic::error(format!(
@@ -427,6 +432,22 @@ mod tests {
         assert!(
             !warnings.is_empty(),
             "should warn about conjugation target with no features"
+        );
+    }
+
+    #[test]
+    fn multiplicity_with_feature_ref_defers_validation() {
+        let (_model, sink) =
+            compile_and_validate("package P { type T { feature n : T; feature x : T [5..n]; } }");
+        let bound_errors: Vec<_> = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.message.contains("exceeds upper bound"))
+            .collect();
+        assert!(
+            bound_errors.is_empty(),
+            "symbolic bound should defer validation, got: {:?}",
+            bound_errors
         );
     }
 }

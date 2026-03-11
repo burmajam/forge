@@ -152,14 +152,14 @@ fn build_elements(model: &SemanticModel, interner: &StringInterner) -> Vec<Value
 
             // Add multiplicity
             if let Some(mult) = &def.multiplicity {
-                let upper_str = match mult.upper {
-                    kermlc_hir::Bound::Exact(n) => n.to_string(),
-                    kermlc_hir::Bound::Unbounded => "*".to_string(),
-                };
                 element["ownedMultiplicity"] = json!({
                     "@type": "MultiplicityRange",
-                    "lowerBound": mult.lower,
-                    "upperBound": upper_str,
+                    "lowerBound": mult_bound_to_json(
+                        &mult.lower, model, interner,
+                    ),
+                    "upperBound": mult_bound_to_json(
+                        &mult.upper, model, interner,
+                    ),
                 });
             }
 
@@ -191,6 +191,33 @@ fn build_elements(model: &SemanticModel, interner: &StringInterner) -> Vec<Value
     }
 
     elements
+}
+
+fn mult_bound_to_json(
+    bound: &kermlc_hir::MultBound,
+    model: &SemanticModel,
+    interner: &StringInterner,
+) -> Value {
+    match bound {
+        kermlc_hir::MultBound::Exact(n) => json!(n),
+        kermlc_hir::MultBound::Unbounded => json!("*"),
+        kermlc_hir::MultBound::Ref(name_ref) => {
+            match name_ref.resolved_def() {
+                Some(def_id) => {
+                    let name =
+                        interner.resolve(model.defs[def_id].name);
+                    json!({
+                        "@type": "FeatureReferenceExpression",
+                        "reference": name,
+                    })
+                }
+                None => json!({
+                    "@type": "FeatureReferenceExpression",
+                    "reference": null,
+                }),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -298,5 +325,25 @@ mod tests {
         let json = compile_and_serialize("package P { type A { feature f : A; } }");
         let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&json);
         assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn serialize_multiplicity_with_feature_ref() {
+        let json = compile_and_serialize(
+            "package P { type T { feature n : T; feature x : T [1..n]; } }",
+        );
+        let value: Vec<serde_json::Value> =
+            serde_json::from_str(&json).unwrap();
+
+        let x_elem =
+            value.iter().find(|e| e["name"] == "x").unwrap();
+        let mult = &x_elem["ownedMultiplicity"];
+        assert_eq!(mult["@type"], "MultiplicityRange");
+        assert_eq!(mult["lowerBound"], 1);
+        assert_eq!(
+            mult["upperBound"]["@type"],
+            "FeatureReferenceExpression",
+            "upper bound should serialize as FeatureReferenceExpression"
+        );
     }
 }
