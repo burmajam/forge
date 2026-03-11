@@ -6,7 +6,7 @@ use kermlc_intern::StringInterner;
 /// Lower a ParseResult (AST) into a SemanticModel (HIR).
 pub fn lower_ast(
     parse: &kermlc_parser::ParseResult,
-    interner: &StringInterner,
+    interner: &mut StringInterner,
     _sink: &mut DiagnosticSink,
 ) -> SemanticModel {
     let mut model = SemanticModel::new();
@@ -34,8 +34,7 @@ pub fn lower_ast(
 struct LowerCtx<'a> {
     model: &'a mut SemanticModel,
     parse: &'a kermlc_parser::ParseResult,
-    #[allow(dead_code)]
-    interner: &'a StringInterner,
+    interner: &'a mut StringInterner,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -106,11 +105,25 @@ impl<'a> LowerCtx<'a> {
         def.direction = feat.direction;
 
         // Lower type reference
-        if let Some(type_ref) = &feat.type_ref {
-            def.type_ref = Some(NameRef::unresolved(
-                type_ref.segments.clone(),
-                type_ref.span,
-            ));
+        match &feat.type_ref {
+            Some(kermlc_ast::TypeExpr::Named(qn)) => {
+                def.type_ref = Some(NameRef::unresolved(
+                    qn.segments.clone(),
+                    qn.span,
+                ));
+            }
+            Some(kermlc_ast::TypeExpr::Conjugated(qn, span)) => {
+                let anon_id = self.synthesize_conjugated_type(qn, *span);
+                def.type_ref = Some(NameRef {
+                    segments: vec![],
+                    span: *span,
+                    resolution: ResolutionState::Resolved(anon_id),
+                });
+            }
+            Some(kermlc_ast::TypeExpr::Chain(_)) => {
+                // Future: chain-as-type lowering
+            }
+            None => {}
         }
 
         // Lower conjugation
@@ -147,6 +160,27 @@ impl<'a> LowerCtx<'a> {
         def.conjugation_decl = Some((conjugated, original));
 
         self.model.alloc_def(def)
+    }
+
+    fn synthesize_conjugated_type(
+        &mut self,
+        original: &kermlc_ast::QualifiedName,
+        span: kermlc_diagnostics::Span,
+    ) -> DefId {
+        let last_seg = *original
+            .segments
+            .last()
+            .expect("empty qualified name");
+        let orig_name = self.interner.resolve(last_seg);
+        let synth_name =
+            self.interner.intern(&format!("~{orig_name}"));
+
+        let mut anon_def = Def::new(synth_name, DefKind::Type, span);
+        anon_def.conjugation = Some(NameRef::unresolved(
+            original.segments.clone(),
+            original.span,
+        ));
+        self.model.alloc_def(anon_def)
     }
 }
 
@@ -192,7 +226,7 @@ mod tests {
         let mut sink = DiagnosticSink::new();
         let file_id = source_map.add_file("test.kerml".into(), input.into());
         let parse = Parser::parse(input, file_id, &mut interner, &mut sink);
-        let model = lower_ast(&parse, &interner, &mut sink);
+        let model = lower_ast(&parse, &mut interner, &mut sink);
         (model, interner, sink)
     }
 
@@ -274,5 +308,39 @@ mod tests {
         let mult = feat.multiplicity.as_ref().unwrap();
         assert_eq!(mult.lower, 0);
         assert_eq!(mult.upper, Bound::Exact(1));
+    }
+
+    #[test]
+    fn lower_inline_conjugated_type_ref() {
+        let (model, interner, sink) =
+            lower("package P { type T { in feature f : T; } type U { feature g : ~T; } }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+
+        let pkg = &model.defs[model.roots[0]];
+        let u_id = pkg.children[1];
+        let g_id = model.defs[u_id].children[0];
+        let g = &model.defs[g_id];
+
+        assert_eq!(interner.resolve(g.name), "g");
+        assert!(g.type_ref.is_some(), "g should have type_ref");
+        let type_ref = g.type_ref.as_ref().unwrap();
+        assert!(
+            type_ref.is_resolved(),
+            "type_ref should be pre-resolved to anonymous type"
+        );
+
+        let anon_id = type_ref.resolved_def().unwrap();
+        let anon = &model.defs[anon_id];
+        assert_eq!(anon.kind, DefKind::Type);
+        assert_eq!(interner.resolve(anon.name), "~T");
+        assert!(
+            anon.conjugation.is_some(),
+            "anonymous type should have conjugation"
+        );
+        assert_eq!(
+            anon.conjugation.as_ref().unwrap().resolution,
+            ResolutionState::Unresolved,
+            "conjugation target should be unresolved at lowering time"
+        );
     }
 }
