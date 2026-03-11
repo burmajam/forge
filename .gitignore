@@ -11,3 +11,4 @@
 
 # Temporary/local files
 proba.jsonl
+.venv/
