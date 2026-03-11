@@ -28,6 +28,8 @@ pub fn resolve_pass(
         changed |= resolve_type_ref_for(model, def_id);
         // Resolve feature chains (may be deferred if types aren't known yet)
         changed |= resolve_chains_for(model, def_id);
+        // Resolve multiplicity refs
+        changed |= resolve_multiplicity_refs_for(model, def_id);
     }
 
     changed
@@ -94,6 +96,26 @@ pub fn emit_unresolved_errors(
                     Diagnostic::error(format!("unresolved chain segment `{}`", name_str))
                         .with_label(Label::primary(chain_seg.span, "not found")),
                 );
+            }
+        }
+
+        if let Some(ref mult) = def.multiplicity {
+            for bound in [&mult.lower, &mult.upper] {
+                if let kermlc_hir::MultBound::Ref(ref r) = bound {
+                    if r.resolution == ResolutionState::Unresolved {
+                        let name_str =
+                            segments_to_string(&r.segments, interner);
+                        sink.emit(
+                            Diagnostic::error(format!(
+                                "unresolved multiplicity bound `{}`",
+                                name_str
+                            ))
+                            .with_label(Label::primary(
+                                r.span, "not found",
+                            )),
+                        );
+                    }
+                }
             }
         }
     }
@@ -311,6 +333,61 @@ fn resolve_chains_for(model: &mut SemanticModel, def_id: DefId) -> bool {
     changed
 }
 
+fn resolve_multiplicity_refs_for(
+    model: &mut SemanticModel,
+    def_id: DefId,
+) -> bool {
+    let mut changed = false;
+
+    if let Some(ref mult) = model.defs[def_id].multiplicity {
+        if let kermlc_hir::MultBound::Ref(ref name_ref) = mult.lower {
+            if name_ref.resolution == ResolutionState::Unresolved {
+                let segments = name_ref.segments.clone();
+                if let Some(resolved) =
+                    try_resolve_name(model, def_id, &segments)
+                {
+                    if let kermlc_hir::MultBound::Ref(ref mut r) =
+                        model.defs[def_id]
+                            .multiplicity
+                            .as_mut()
+                            .unwrap()
+                            .lower
+                    {
+                        r.resolution =
+                            ResolutionState::Resolved(resolved);
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(ref mult) = model.defs[def_id].multiplicity {
+        if let kermlc_hir::MultBound::Ref(ref name_ref) = mult.upper {
+            if name_ref.resolution == ResolutionState::Unresolved {
+                let segments = name_ref.segments.clone();
+                if let Some(resolved) =
+                    try_resolve_name(model, def_id, &segments)
+                {
+                    if let kermlc_hir::MultBound::Ref(ref mut r) =
+                        model.defs[def_id]
+                            .multiplicity
+                            .as_mut()
+                            .unwrap()
+                            .upper
+                    {
+                        r.resolution =
+                            ResolutionState::Resolved(resolved);
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    changed
+}
+
 /// Try to resolve a multi-segment name from the perspective of `scope`.
 fn try_resolve_name(
     model: &SemanticModel,
@@ -490,5 +567,63 @@ mod tests {
         let found = detect_specialization_cycles(&model, &interner, &mut sink);
         assert!(!found, "should not detect cycle in a valid chain");
         assert!(!sink.has_errors());
+    }
+
+    #[test]
+    fn resolve_multiplicity_feature_ref() {
+        let (mut model, interner, mut sink) = parse_and_lower(
+            "package P { type T { feature n : T; feature x : T [1..n]; } }",
+        );
+        assert!(
+            !sink.has_errors(),
+            "parse errors: {:?}",
+            sink.diagnostics()
+        );
+
+        resolve_pass(&mut model, &interner, &mut sink);
+
+        let pkg = model.roots[0];
+        let ty = model.defs[pkg].children[0];
+        let x_id = model.defs[ty].children[1];
+        let mult = model.defs[x_id]
+            .multiplicity
+            .as_ref()
+            .expect("x should have multiplicity");
+
+        if let kermlc_hir::MultBound::Ref(ref name_ref) = mult.upper {
+            assert!(
+                name_ref.is_resolved(),
+                "multiplicity ref 'n' should resolve to the feature"
+            );
+        } else {
+            panic!(
+                "upper bound should be MultBound::Ref, got {:?}",
+                mult.upper
+            );
+        }
+    }
+
+    #[test]
+    fn unresolved_multiplicity_ref_produces_error() {
+        let (mut model, interner, mut sink) = parse_and_lower(
+            "package P { type T { feature x : T [1..noSuchFeature]; } }",
+        );
+
+        resolve_pass(&mut model, &interner, &mut sink);
+        emit_unresolved_errors(&model, &interner, &mut sink);
+
+        assert!(
+            sink.has_errors(),
+            "unresolved multiplicity ref should produce error"
+        );
+        let has_mult_error = sink
+            .diagnostics()
+            .iter()
+            .any(|d| d.message.contains("multiplicity bound"));
+        assert!(
+            has_mult_error,
+            "error should mention 'multiplicity bound': {:?}",
+            sink.diagnostics()
+        );
     }
 }
