@@ -68,6 +68,7 @@ impl<'a> LowerCtx<'a> {
             kermlc_ast::Member::Package(id) => self.lower_package(*id),
             kermlc_ast::Member::Type(id) => self.lower_type(*id),
             kermlc_ast::Member::Feature(id) => self.lower_feature(*id),
+            kermlc_ast::Member::Conjugation(id) => self.lower_conjugation_decl(*id),
         }
     }
 
@@ -124,6 +125,21 @@ impl<'a> LowerCtx<'a> {
         if let Some(mult) = &feat.multiplicity {
             def.multiplicity = Some(lower_multiplicity(mult));
         }
+
+        self.model.alloc_def(def)
+    }
+
+    fn lower_conjugation_decl(&mut self, conj_id: kermlc_ast::ConjugationDeclId) -> DefId {
+        let conj = &self.parse.conjugations[conj_id];
+        let mut def = Def::new(conj.name, DefKind::Conjugation, conj.span);
+
+        let conjugated = NameRef::unresolved(
+            conj.conjugated_type.segments.clone(),
+            conj.conjugated_type.span,
+        );
+        let original =
+            NameRef::unresolved(conj.original_type.segments.clone(), conj.original_type.span);
+        def.conjugation_decl = Some((conjugated, original));
 
         self.model.alloc_def(def)
     }

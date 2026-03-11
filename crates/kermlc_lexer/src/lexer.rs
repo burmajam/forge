@@ -141,6 +141,8 @@ impl<'a> Lexer<'a> {
                     "type" => TokenKind::Type,
                     "feature" => TokenKind::Feature,
                     "specializes" => TokenKind::Specializes,
+                    "conjugation" => TokenKind::Conjugation,
+                    "conjugate" => TokenKind::Conjugate,
                     "conjugates" => TokenKind::Conjugates,
                     "chains" => TokenKind::Chains,
                     "in" => TokenKind::In,

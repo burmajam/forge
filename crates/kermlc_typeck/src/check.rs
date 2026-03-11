@@ -28,7 +28,10 @@ pub fn typecheck_pass(
             DefKind::Feature => {
                 changed |= check_feature(model, def_id);
             }
-            _ => {}
+            DefKind::Conjugation => {
+                changed |= check_conjugation_decl(model, def_id);
+            }
+            DefKind::Package => {}
         }
     }
 
@@ -154,6 +157,44 @@ fn check_type(model: &mut SemanticModel, def_id: DefId) -> bool {
 
     model.defs[def_id].type_checked = true;
     changed
+}
+
+/// Check a named conjugation declaration: apply conjugation
+/// effect to the conjugated type.
+fn check_conjugation_decl(model: &mut SemanticModel, def_id: DefId) -> bool {
+    let (conj_ref, orig_ref) = match &model.defs[def_id].conjugation_decl {
+        Some((c, o)) => (c.clone(), o.clone()),
+        None => return false,
+    };
+
+    if !conj_ref.is_resolved() || !orig_ref.is_resolved() {
+        return false;
+    }
+
+    let conjugated_id = conj_ref.resolved_def().unwrap();
+    let original_id = orig_ref.resolved_def().unwrap();
+
+    // Only apply if the conjugated type doesn't already have
+    // a conjugation set (from inline ~ or a prior declaration)
+    if model.defs[conjugated_id].conjugation.is_some() {
+        model.defs[def_id].type_checked = true;
+        return false;
+    }
+
+    // Set the conjugation on the conjugated type so check_type
+    // picks it up and applies direction flipping
+    model.defs[conjugated_id].conjugation = Some(kermlc_hir::NameRef {
+        segments: orig_ref.segments,
+        span: orig_ref.span,
+        resolution: kermlc_hir::ResolutionState::Resolved(original_id),
+    });
+
+    // Reset type_checked on the conjugated type so it gets
+    // re-processed with the new conjugation
+    model.defs[conjugated_id].type_checked = false;
+
+    model.defs[def_id].type_checked = true;
+    true
 }
 
 /// Check a feature definition: verify type ref is resolved.

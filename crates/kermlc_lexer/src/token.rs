@@ -8,6 +8,8 @@ pub enum TokenKind {
     Type,
     Feature,
     Specializes,
+    Conjugation,
+    Conjugate,
     Conjugates,
     Chains,
     In,

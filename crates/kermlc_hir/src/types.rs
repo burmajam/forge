@@ -15,6 +15,7 @@ pub enum DefKind {
     Package,
     Type,
     Feature,
+    Conjugation,
 }
 
 /// Resolution state for a name reference.
@@ -115,6 +116,8 @@ pub struct Def {
     pub multiplicity: Option<HirMultiplicity>,
     /// For features: direction modifier (in, out, inout)
     pub direction: Option<FeatureDirection>,
+    /// For conjugation declarations: (conjugated_type, original_type)
+    pub conjugation_decl: Option<(NameRef, NameRef)>,
     /// Imports visible from this def's scope
     pub imports: Vec<Import>,
     /// Inherited features (populated by type checking)
@@ -133,6 +136,7 @@ impl Def {
             children: Vec::new(),
             specializations: Vec::new(),
             conjugation: None,
+            conjugation_decl: None,
             type_ref: None,
             chain_segments: Vec::new(),
             multiplicity: None,

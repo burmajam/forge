@@ -22,6 +22,8 @@ pub fn resolve_pass(
         changed |= resolve_specializations_for(model, def_id);
         // Resolve conjugation
         changed |= resolve_conjugation_for(model, def_id);
+        // Resolve conjugation declarations
+        changed |= resolve_conjugation_decl_for(model, def_id);
         // Resolve type refs
         changed |= resolve_type_ref_for(model, def_id);
         // Resolve feature chains (may be deferred if types aren't known yet)
@@ -64,6 +66,23 @@ pub fn emit_unresolved_errors(
                 sink.emit(
                     Diagnostic::error(format!("unresolved type `{}`", name_str))
                         .with_label(Label::primary(type_ref.span, "not found")),
+                );
+            }
+        }
+
+        if let Some((ref conj, ref orig)) = def.conjugation_decl {
+            if conj.resolution == ResolutionState::Unresolved {
+                let name_str = segments_to_string(&conj.segments, interner);
+                sink.emit(
+                    Diagnostic::error(format!("unresolved conjugated type `{name_str}`"))
+                        .with_label(Label::primary(conj.span, "not found")),
+                );
+            }
+            if orig.resolution == ResolutionState::Unresolved {
+                let name_str = segments_to_string(&orig.segments, interner);
+                sink.emit(
+                    Diagnostic::error(format!("unresolved original type `{name_str}`"))
+                        .with_label(Label::primary(orig.span, "not found")),
                 );
             }
         }
@@ -217,6 +236,45 @@ fn resolve_conjugation_for(model: &mut SemanticModel, def_id: DefId) -> bool {
     } else {
         false
     }
+}
+
+fn resolve_conjugation_decl_for(model: &mut SemanticModel, def_id: DefId) -> bool {
+    if model.defs[def_id].kind != kermlc_hir::DefKind::Conjugation {
+        return false;
+    }
+    let mut changed = false;
+
+    if let Some((ref conj, _)) = model.defs[def_id].conjugation_decl {
+        if conj.resolution == ResolutionState::Unresolved {
+            let segs = conj.segments.clone();
+            if let Some(resolved) = try_resolve_name(model, def_id, &segs) {
+                model.defs[def_id]
+                    .conjugation_decl
+                    .as_mut()
+                    .unwrap()
+                    .0
+                    .resolution = ResolutionState::Resolved(resolved);
+                changed = true;
+            }
+        }
+    }
+
+    if let Some((_, ref orig)) = model.defs[def_id].conjugation_decl {
+        if orig.resolution == ResolutionState::Unresolved {
+            let segs = orig.segments.clone();
+            if let Some(resolved) = try_resolve_name(model, def_id, &segs) {
+                model.defs[def_id]
+                    .conjugation_decl
+                    .as_mut()
+                    .unwrap()
+                    .1
+                    .resolution = ResolutionState::Resolved(resolved);
+                changed = true;
+            }
+        }
+    }
+
+    changed
 }
 
 fn resolve_type_ref_for(model: &mut SemanticModel, def_id: DefId) -> bool {

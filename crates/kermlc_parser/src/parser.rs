@@ -9,6 +9,7 @@ pub struct ParseResult {
     pub packages: Arena<PackageDecl>,
     pub types: Arena<TypeDecl>,
     pub features: Arena<FeatureDecl>,
+    pub conjugations: Arena<ConjugationDecl>,
 }
 
 pub struct Parser<'a> {
@@ -21,6 +22,7 @@ pub struct Parser<'a> {
     packages: Arena<PackageDecl>,
     types: Arena<TypeDecl>,
     features: Arena<FeatureDecl>,
+    conjugations: Arena<ConjugationDecl>,
 }
 
 impl<'a> Parser<'a> {
@@ -55,6 +57,7 @@ impl<'a> Parser<'a> {
             packages: Arena::new(),
             types: Arena::new(),
             features: Arena::new(),
+            conjugations: Arena::new(),
         };
 
         let start = parser.current_span();
@@ -79,6 +82,11 @@ impl<'a> Parser<'a> {
                         top_members.push(Member::Feature(id));
                     }
                 }
+                TokenKind::Conjugation => {
+                    if let Some(id) = parser.parse_conjugation_decl() {
+                        top_members.push(Member::Conjugation(id));
+                    }
+                }
                 TokenKind::Import => {
                     // Top-level imports not attached to a package — skip with error
                     parser.error_at_current("import must be inside a package");
@@ -86,7 +94,9 @@ impl<'a> Parser<'a> {
                     parser.synchronize();
                 }
                 _ => {
-                    parser.error_at_current("expected package, type, or feature declaration");
+                    parser.error_at_current(
+                        "expected package, type, feature, or conjugation declaration",
+                    );
                     parser.synchronize();
                 }
             }
@@ -112,6 +122,7 @@ impl<'a> Parser<'a> {
             packages: parser.packages,
             types: parser.types,
             features: parser.features,
+            conjugations: parser.conjugations,
         }
     }
 
@@ -174,6 +185,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::Type
                 | TokenKind::Feature
                 | TokenKind::Import
+                | TokenKind::Conjugation
                 | TokenKind::In
                 | TokenKind::Out
                 | TokenKind::InOut => break,
@@ -237,8 +249,16 @@ impl<'a> Parser<'a> {
                         members.push(Member::Feature(id));
                     }
                 }
+                TokenKind::Conjugation => {
+                    if let Some(id) = self.parse_conjugation_decl() {
+                        members.push(Member::Conjugation(id));
+                    }
+                }
                 _ => {
-                    self.error_at_current("expected import, package, type, or feature declaration");
+                    self.error_at_current(
+                        "expected import, package, type, feature, \
+                         or conjugation declaration",
+                    );
                     self.synchronize();
                 }
             }
@@ -348,8 +368,13 @@ impl<'a> Parser<'a> {
                             members.push(Member::Feature(id));
                         }
                     }
+                    TokenKind::Conjugation => {
+                        if let Some(id) = self.parse_conjugation_decl() {
+                            members.push(Member::Conjugation(id));
+                        }
+                    }
                     _ => {
-                        self.error_at_current("expected type or feature declaration");
+                        self.error_at_current("expected type, feature, or conjugation declaration");
                         self.synchronize();
                     }
                 }
@@ -376,6 +401,51 @@ impl<'a> Parser<'a> {
             specializations,
             conjugation,
             members,
+        }))
+    }
+
+    fn parse_conjugation_decl(&mut self) -> Option<ConjugationDeclId> {
+        let start = self.current_span();
+        self.expect(TokenKind::Conjugation)?;
+
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = self.intern_span(name_tok.span);
+
+        if self.expect(TokenKind::Conjugate).is_none() {
+            self.synchronize();
+            return None;
+        }
+
+        let conjugated_type = match self.parse_qualified_name() {
+            Some(qn) => qn,
+            None => {
+                self.synchronize();
+                return None;
+            }
+        };
+
+        if self.expect(TokenKind::Conjugates).is_none() {
+            self.synchronize();
+            return None;
+        }
+
+        let original_type = match self.parse_qualified_name() {
+            Some(qn) => qn,
+            None => {
+                self.synchronize();
+                return None;
+            }
+        };
+
+        let end = self.current_span();
+        self.expect(TokenKind::Semicolon);
+
+        let span = Span::new(start.file, start.start, end.end);
+        Some(self.conjugations.alloc(ConjugationDecl {
+            name,
+            span,
+            conjugated_type,
+            original_type,
         }))
     }
 

@@ -198,6 +198,68 @@ fn valid_conjugation_chained() {
 }
 
 #[test]
+fn valid_conjugation_named() {
+    let result = compile_file(&fixtures_dir().join("valid/conjugation_named.kerml"));
+    assert!(
+        !result.sink.has_errors(),
+        "Errors in conjugation_named.kerml: {:?}",
+        result.sink.diagnostics()
+    );
+
+    // Find Sink type and verify inherited features
+    let pkg = result.model.roots[0];
+    let sink_id = result.model.defs[pkg]
+        .children
+        .iter()
+        .find(|&&c| result.interner.resolve(result.model.defs[c].name) == "Sink")
+        .copied()
+        .expect("Sink type not found");
+
+    let sink_def = &result.model.defs[sink_id];
+    assert_eq!(
+        sink_def.inherited_features.len(),
+        4,
+        "Sink should inherit 4 features from Source via named conjugation"
+    );
+
+    for inh in &sink_def.inherited_features {
+        assert_eq!(inh.kind, InheritanceKind::Conjugation);
+        let feat_name = result.interner.resolve(result.model.defs[inh.def_id].name);
+        match feat_name {
+            "input" => assert_eq!(
+                inh.direction_override,
+                Some(FeatureDirection::Out),
+                "in should flip to out"
+            ),
+            "output" => assert_eq!(
+                inh.direction_override,
+                Some(FeatureDirection::In),
+                "out should flip to in"
+            ),
+            "control" => assert_eq!(
+                inh.direction_override,
+                Some(FeatureDirection::InOut),
+                "inout stays inout"
+            ),
+            "data" => assert_eq!(inh.direction_override, None, "no direction stays None"),
+            other => panic!("unexpected feature: {other}"),
+        }
+    }
+
+    // Verify the conjugation def itself exists
+    let conj_id = result.model.defs[pkg]
+        .children
+        .iter()
+        .find(|&&c| result.interner.resolve(result.model.defs[c].name) == "c1")
+        .copied()
+        .expect("conjugation c1 not found");
+    assert_eq!(
+        result.model.defs[conj_id].kind,
+        kermlc_hir::DefKind::Conjugation
+    );
+}
+
+#[test]
 fn valid_feature_chain() {
     let result = compile_file(&fixtures_dir().join("valid/feature_chain.kerml"));
     assert!(

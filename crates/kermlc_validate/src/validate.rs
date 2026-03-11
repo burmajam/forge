@@ -21,7 +21,10 @@ pub fn validate(
             DefKind::Feature => {
                 validate_feature(model, interner, def_id, sink);
             }
-            _ => {}
+            DefKind::Conjugation => {
+                validate_conjugation_decl(model, interner, def_id, sink);
+            }
+            DefKind::Package => {}
         }
     }
 
@@ -113,6 +116,82 @@ fn validate_type(
                         .with_label(Label::secondary(a.span, "first defined here")),
                 );
             }
+        }
+    }
+}
+
+/// Validate a named conjugation declaration.
+fn validate_conjugation_decl(
+    model: &SemanticModel,
+    interner: &StringInterner,
+    def_id: DefId,
+    sink: &mut DiagnosticSink,
+) {
+    let def = &model.defs[def_id];
+    let (conj_ref, orig_ref) = match &def.conjugation_decl {
+        Some(pair) => pair,
+        None => return,
+    };
+
+    // Both targets must be types
+    if let Some(target_id) = conj_ref.resolved_def() {
+        let target = &model.defs[target_id];
+        if target.kind != DefKind::Type {
+            let name = interner.resolve(target.name);
+            sink.emit(
+                Diagnostic::error(format!(
+                    "conjugated type `{name}` is a {:?}, not a type",
+                    target.kind
+                ))
+                .with_label(Label::primary(conj_ref.span, "expected a type here")),
+            );
+        }
+    }
+
+    if let Some(target_id) = orig_ref.resolved_def() {
+        let target = &model.defs[target_id];
+        if target.kind != DefKind::Type {
+            let name = interner.resolve(target.name);
+            sink.emit(
+                Diagnostic::error(format!(
+                    "original type `{name}` is a {:?}, not a type",
+                    target.kind
+                ))
+                .with_label(Label::primary(orig_ref.span, "expected a type here")),
+            );
+        }
+    }
+
+    // No self-conjugation
+    if let (Some(conj_id), Some(orig_id)) = (conj_ref.resolved_def(), orig_ref.resolved_def()) {
+        if conj_id == orig_id {
+            let name = interner.resolve(model.defs[conj_id].name);
+            sink.emit(
+                Diagnostic::error(format!("type `{name}` cannot conjugate itself"))
+                    .with_label(Label::primary(def.span, "self-conjugation")),
+            );
+        }
+    }
+
+    // Warn if original type has no features
+    if let Some(orig_id) = orig_ref.resolved_def() {
+        let orig = &model.defs[orig_id];
+        let has_features = orig
+            .children
+            .iter()
+            .any(|c| model.defs[*c].kind == DefKind::Feature);
+        if !has_features {
+            let name = interner.resolve(orig.name);
+            sink.emit(
+                Diagnostic::warning(format!(
+                    "original type `{name}` has no features; \
+                     conjugation has no effect"
+                ))
+                .with_label(Label::primary(
+                    orig_ref.span,
+                    "this type has no features to flip",
+                )),
+            );
         }
     }
 }

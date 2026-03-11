@@ -5,6 +5,7 @@ use kermlc_intern::{Idx, SymbolId};
 pub type PackageId = Idx<PackageDecl>;
 pub type TypeDeclId = Idx<TypeDecl>;
 pub type FeatureDeclId = Idx<FeatureDecl>;
+pub type ConjugationDeclId = Idx<ConjugationDecl>;
 
 /// A qualified name like `Vehicles::Car` or `Base::Anything`.
 #[derive(Clone, Debug)]
@@ -19,6 +20,7 @@ pub enum Member {
     Package(PackageId),
     Type(TypeDeclId),
     Feature(FeatureDeclId),
+    Conjugation(ConjugationDeclId),
 }
 
 /// `package Foo { ... }`
@@ -80,6 +82,15 @@ pub struct FeatureDecl {
     pub type_ref: Option<QualifiedName>,
     pub chain: Option<FeatureChain>,
     pub multiplicity: Option<Multiplicity>,
+}
+
+/// `conjugation c1 conjugate Sink conjugates Source;`
+#[derive(Clone, Debug)]
+pub struct ConjugationDecl {
+    pub name: SymbolId,
+    pub span: Span,
+    pub conjugated_type: QualifiedName,
+    pub original_type: QualifiedName,
 }
 
 /// Expression node (minimal for milestone 1).

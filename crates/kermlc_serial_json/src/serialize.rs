@@ -17,6 +17,7 @@ fn build_elements(model: &SemanticModel, interner: &StringInterner) -> Vec<Value
             DefKind::Package => "Package",
             DefKind::Type => "Type",
             DefKind::Feature => "Feature",
+            DefKind::Conjugation => "Conjugation",
         };
 
         let name = interner.resolve(def.name);
@@ -39,6 +40,7 @@ fn build_elements(model: &SemanticModel, interner: &StringInterner) -> Vec<Value
                         DefKind::Package => "package",
                         DefKind::Type => "type",
                         DefKind::Feature => "feature",
+                        DefKind::Conjugation => "conjugation",
                     };
                     json!({
                         "@id": format!("{}-{}", child_type, child_id.raw()),
@@ -121,6 +123,20 @@ fn build_elements(model: &SemanticModel, interner: &StringInterner) -> Vec<Value
             element["inheritedFeature"] = json!(inherited_refs);
         }
 
+        // Add conjugation declaration refs
+        if let Some((ref conj, ref orig)) = def.conjugation_decl {
+            if let Some(conj_id) = conj.resolved_def() {
+                element["conjugatedType"] = json!({
+                    "@id": format!("type-{}", conj_id.raw()),
+                });
+            }
+            if let Some(orig_id) = orig.resolved_def() {
+                element["originalType"] = json!({
+                    "@id": format!("type-{}", orig_id.raw()),
+                });
+            }
+        }
+
         // Add typing for features
         if def.kind == DefKind::Feature {
             if let Some(type_ref) = &def.type_ref {
@@ -164,6 +180,7 @@ fn build_elements(model: &SemanticModel, interner: &StringInterner) -> Vec<Value
                 DefKind::Package => "package",
                 DefKind::Type => "type",
                 DefKind::Feature => "feature",
+                DefKind::Conjugation => "conjugation",
             };
             element["owner"] = json!({
                 "@id": format!("{}-{}", parent_type, parent_id.raw()),
