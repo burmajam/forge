@@ -475,13 +475,17 @@ impl<'a> Parser<'a> {
         let name = self.intern_span(name_tok.span);
 
         let mut type_ref = None;
+        let mut conjugation = None;
         let mut chain = None;
         let mut multiplicity = None;
 
-        // Parse typing: : TypeRef
+        // Parse typing `:` or conjugation `~`/`conjugates`
         if self.at(TokenKind::Colon) {
             self.bump();
             type_ref = self.parse_qualified_name();
+        } else if self.at(TokenKind::Tilde) || self.at(TokenKind::Conjugates) {
+            self.bump();
+            conjugation = self.parse_qualified_name();
         }
 
         // Parse chaining: chains a.b.c
@@ -508,6 +512,7 @@ impl<'a> Parser<'a> {
             span,
             direction,
             type_ref,
+            conjugation,
             chain,
             multiplicity,
         }))
@@ -749,5 +754,56 @@ mod tests {
         assert!(sink.has_errors());
         // But should still have parsed some content
         assert!(!result.source_file.packages.is_empty());
+    }
+
+    #[test]
+    fn parse_feature_conjugation_tilde() {
+        let (result, interner, sink) = parse("package P { type T { feature g ~ T; } }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+        let pkg = &result.packages[result.source_file.packages[0]];
+        let Member::Type(ty_id) = &pkg.members[0] else {
+            panic!("expected type member");
+        };
+        let ty = &result.types[*ty_id];
+        let Member::Feature(feat_id) = &ty.members[0] else {
+            panic!("expected feature member");
+        };
+        let feat = &result.features[*feat_id];
+        assert_eq!(interner.resolve(feat.name), "g");
+        assert!(feat.conjugation.is_some(), "should have conjugation");
+        assert!(feat.type_ref.is_none(), "should NOT have type_ref");
+    }
+
+    #[test]
+    fn parse_feature_conjugation_keyword() {
+        let (result, _interner, sink) = parse("package P { type T { feature g conjugates T; } }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+        let pkg = &result.packages[result.source_file.packages[0]];
+        let Member::Type(ty_id) = &pkg.members[0] else {
+            panic!("expected type member");
+        };
+        let ty = &result.types[*ty_id];
+        let Member::Feature(feat_id) = &ty.members[0] else {
+            panic!("expected feature member");
+        };
+        let feat = &result.features[*feat_id];
+        assert!(feat.conjugation.is_some());
+    }
+
+    #[test]
+    fn parse_feature_conjugation_qualified() {
+        let (result, _interner, sink) = parse("package P { type T { feature g ~ A::f; } }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+        let pkg = &result.packages[result.source_file.packages[0]];
+        let Member::Type(ty_id) = &pkg.members[0] else {
+            panic!("expected type member");
+        };
+        let ty = &result.types[*ty_id];
+        let Member::Feature(feat_id) = &ty.members[0] else {
+            panic!("expected feature member");
+        };
+        let feat = &result.features[*feat_id];
+        let conj = feat.conjugation.as_ref().expect("should have conjugation");
+        assert_eq!(conj.segments.len(), 2, "A::f has 2 segments");
     }
 }

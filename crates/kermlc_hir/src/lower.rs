@@ -113,6 +113,11 @@ impl<'a> LowerCtx<'a> {
             ));
         }
 
+        // Lower conjugation
+        if let Some(conj) = &feat.conjugation {
+            def.conjugation = Some(NameRef::unresolved(conj.segments.clone(), conj.span));
+        }
+
         // Lower feature chain
         if let Some(chain) = &feat.chain {
             for seg in &chain.segments {
@@ -230,6 +235,28 @@ mod tests {
         assert_eq!(feat.kind, DefKind::Feature);
         assert_eq!(interner.resolve(feat.name), "f");
         assert_eq!(feat.direction, Some(FeatureDirection::In));
+    }
+
+    #[test]
+    fn lower_feature_conjugation() {
+        let (model, interner, sink) =
+            lower("package P { type T { in feature f; } feature g ~ T::f; }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+
+        let pkg = &model.defs[model.roots[0]];
+        let g = &model.defs[pkg.children[1]];
+        assert_eq!(g.kind, DefKind::Feature);
+        assert_eq!(interner.resolve(g.name), "g");
+        assert!(
+            g.conjugation.is_some(),
+            "feature g should have conjugation ref"
+        );
+        let conj = g.conjugation.as_ref().unwrap();
+        assert_eq!(
+            conj.resolution,
+            ResolutionState::Unresolved,
+            "should be unresolved at lowering time"
+        );
     }
 
     #[test]

@@ -260,6 +260,60 @@ fn valid_conjugation_named() {
 }
 
 #[test]
+fn valid_feature_conjugation() {
+    let result = compile_file(&fixtures_dir().join("valid/feature_conjugation.kerml"));
+    assert!(
+        !result.sink.has_errors(),
+        "Errors in feature_conjugation.kerml: {:?}",
+        result.sink.diagnostics()
+    );
+
+    let pkg = result.model.roots[0];
+    let children = &result.model.defs[pkg].children;
+
+    // Find feature g (top-level feature in package, after Source type)
+    let g_id = children
+        .iter()
+        .find(|&&c| result.interner.resolve(result.model.defs[c].name) == "g")
+        .copied()
+        .expect("feature g not found");
+
+    let g_def = &result.model.defs[g_id];
+    assert_eq!(g_def.kind, kermlc_hir::DefKind::Feature);
+    assert!(g_def.conjugation.is_some(), "g should have conjugation ref");
+    assert!(
+        g_def.conjugation.as_ref().unwrap().is_resolved(),
+        "g's conjugation should be resolved"
+    );
+
+    // Find Tanks type
+    let tanks_id = children
+        .iter()
+        .find(|&&c| result.interner.resolve(result.model.defs[c].name) == "Tanks")
+        .copied()
+        .expect("Tanks type not found");
+
+    let tanks_children = &result.model.defs[tanks_id].children;
+
+    // Find fuelOutPort
+    let out_port_id = tanks_children
+        .iter()
+        .find(|&&c| result.interner.resolve(result.model.defs[c].name) == "fuelOutPort")
+        .copied()
+        .expect("fuelOutPort not found");
+
+    let out_port = &result.model.defs[out_port_id];
+    assert!(
+        out_port.conjugation.is_some(),
+        "fuelOutPort should have conjugation"
+    );
+    assert!(
+        out_port.conjugation.as_ref().unwrap().is_resolved(),
+        "fuelOutPort conjugation should be resolved"
+    );
+}
+
+#[test]
 fn valid_feature_chain() {
     let result = compile_file(&fixtures_dir().join("valid/feature_chain.kerml"));
     assert!(
@@ -306,6 +360,15 @@ fn invalid_missing_brace() {
     assert!(
         result.sink.has_errors(),
         "Expected errors in missing_brace.kerml"
+    );
+}
+
+#[test]
+fn invalid_feature_conjugates_type() {
+    let result = compile_file(&fixtures_dir().join("invalid/feature_conjugates_type.kerml"));
+    assert!(
+        result.sink.has_errors(),
+        "Feature conjugating a Type should produce an error"
     );
 }
 

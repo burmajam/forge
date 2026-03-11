@@ -222,6 +222,24 @@ fn validate_feature(
         }
     }
 
+    // Check that feature conjugation target is a Feature
+    if let Some(conj) = &def.conjugation {
+        if let Some(target_id) = conj.resolved_def() {
+            let target = &model.defs[target_id];
+            if target.kind != DefKind::Feature {
+                let name = interner.resolve(target.name);
+                sink.emit(
+                    Diagnostic::error(format!(
+                        "feature conjugation target `{name}` \
+                         is a {:?}, not a feature",
+                        target.kind
+                    ))
+                    .with_label(Label::primary(conj.span, "expected a feature here")),
+                );
+            }
+        }
+    }
+
     // Validate multiplicity bounds
     if let Some(mult) = &def.multiplicity {
         match mult.upper {
@@ -374,6 +392,27 @@ mod tests {
         let (_model, sink) =
             compile_and_validate("package P { type A { feature x : A; feature x : A; } }");
         assert!(sink.has_errors());
+    }
+
+    #[test]
+    fn feature_conjugation_target_must_be_feature() {
+        let (_model, sink) =
+            compile_and_validate("package P { type A { in feature f; } feature g ~ A; }");
+        assert!(
+            sink.has_errors(),
+            "conjugating a Type (not Feature) should error"
+        );
+    }
+
+    #[test]
+    fn feature_conjugation_valid() {
+        let (_model, sink) =
+            compile_and_validate("package P { type A { in feature f; } feature g ~ A::f; }");
+        assert!(
+            !sink.has_errors(),
+            "valid feature conjugation should pass: {:?}",
+            sink.diagnostics()
+        );
     }
 
     #[test]

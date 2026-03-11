@@ -80,6 +80,7 @@ pub struct FeatureDecl {
     pub span: Span,
     pub direction: Option<FeatureDirection>,
     pub type_ref: Option<QualifiedName>,
+    pub conjugation: Option<QualifiedName>,
     pub chain: Option<FeatureChain>,
     pub multiplicity: Option<Multiplicity>,
 }
