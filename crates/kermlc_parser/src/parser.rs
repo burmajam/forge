@@ -482,7 +482,20 @@ impl<'a> Parser<'a> {
         // Parse typing `:` or conjugation `~`/`conjugates`
         if self.at(TokenKind::Colon) {
             self.bump();
-            type_ref = self.parse_qualified_name();
+            if self.at(TokenKind::Tilde) || self.at(TokenKind::Conjugates) {
+                let conj_start = self.current_span();
+                self.bump();
+                if let Some(qn) = self.parse_qualified_name() {
+                    let span = Span::new(
+                        conj_start.file,
+                        conj_start.start,
+                        qn.span.end,
+                    );
+                    type_ref = Some(TypeExpr::Conjugated(qn, span));
+                }
+            } else if let Some(qn) = self.parse_qualified_name() {
+                type_ref = Some(TypeExpr::Named(qn));
+            }
         } else if self.at(TokenKind::Tilde) || self.at(TokenKind::Conjugates) {
             self.bump();
             conjugation = self.parse_qualified_name();
@@ -805,5 +818,58 @@ mod tests {
         let feat = &result.features[*feat_id];
         let conj = feat.conjugation.as_ref().expect("should have conjugation");
         assert_eq!(conj.segments.len(), 2, "A::f has 2 segments");
+    }
+
+    #[test]
+    fn parse_inline_conjugated_type_ref() {
+        let (result, interner, sink) =
+            parse("package P { type T { feature f : ~T; } }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+        let pkg = &result.packages[result.source_file.packages[0]];
+        let Member::Type(ty_id) = &pkg.members[0] else {
+            panic!("expected type member");
+        };
+        let ty = &result.types[*ty_id];
+        let Member::Feature(feat_id) = &ty.members[0] else {
+            panic!("expected feature member");
+        };
+        let feat = &result.features[*feat_id];
+        assert_eq!(interner.resolve(feat.name), "f");
+        let type_ref = feat.type_ref.as_ref().expect("should have type_ref");
+        match type_ref {
+            TypeExpr::Conjugated(qn, _) => {
+                assert_eq!(qn.segments.len(), 1);
+                assert_eq!(interner.resolve(qn.segments[0]), "T");
+            }
+            _ => panic!("expected TypeExpr::Conjugated, got {:?}", type_ref),
+        }
+        assert!(
+            feat.conjugation.is_none(),
+            "conjugation field should be None"
+        );
+    }
+
+    #[test]
+    fn parse_inline_conjugated_type_ref_qualified() {
+        let (result, interner, sink) =
+            parse("package P { type T { feature f : ~A::B; } }");
+        assert!(!sink.has_errors(), "errors: {:?}", sink.diagnostics());
+        let pkg = &result.packages[result.source_file.packages[0]];
+        let Member::Type(ty_id) = &pkg.members[0] else {
+            panic!("expected type member");
+        };
+        let ty = &result.types[*ty_id];
+        let Member::Feature(feat_id) = &ty.members[0] else {
+            panic!("expected feature member");
+        };
+        let feat = &result.features[*feat_id];
+        match feat.type_ref.as_ref().unwrap() {
+            TypeExpr::Conjugated(qn, _) => {
+                assert_eq!(qn.segments.len(), 2);
+                assert_eq!(interner.resolve(qn.segments[0]), "A");
+                assert_eq!(interner.resolve(qn.segments[1]), "B");
+            }
+            _ => panic!("expected TypeExpr::Conjugated"),
+        }
     }
 }
