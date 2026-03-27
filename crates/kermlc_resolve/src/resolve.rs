@@ -331,41 +331,48 @@ fn resolve_chains_for(model: &mut SemanticModel, def_id: DefId) -> bool {
 }
 
 fn resolve_multiplicity_refs_for(model: &mut SemanticModel, def_id: DefId) -> bool {
+    if model.defs[def_id].multiplicity.is_none() {
+        return false;
+    }
+
     let mut changed = false;
-
-    if let Some(ref mult) = model.defs[def_id].multiplicity {
-        if let kermlc_hir::MultBound::Ref(ref name_ref) = mult.lower {
-            if name_ref.resolution == ResolutionState::Unresolved {
-                let segments = name_ref.segments.clone();
-                if let Some(resolved) = try_resolve_name(model, def_id, &segments) {
-                    if let kermlc_hir::MultBound::Ref(ref mut r) =
-                        model.defs[def_id].multiplicity.as_mut().unwrap().lower
-                    {
-                        r.resolution = ResolutionState::Resolved(resolved);
-                        changed = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some(ref mult) = model.defs[def_id].multiplicity {
-        if let kermlc_hir::MultBound::Ref(ref name_ref) = mult.upper {
-            if name_ref.resolution == ResolutionState::Unresolved {
-                let segments = name_ref.segments.clone();
-                if let Some(resolved) = try_resolve_name(model, def_id, &segments) {
-                    if let kermlc_hir::MultBound::Ref(ref mut r) =
-                        model.defs[def_id].multiplicity.as_mut().unwrap().upper
-                    {
-                        r.resolution = ResolutionState::Resolved(resolved);
-                        changed = true;
-                    }
-                }
-            }
-        }
-    }
-
+    changed |= resolve_mult_bound(model, def_id, |m| &m.lower, |m| &mut m.lower);
+    changed |= resolve_mult_bound(model, def_id, |m| &m.upper, |m| &mut m.upper);
     changed
+}
+
+fn resolve_mult_bound(
+    model: &mut SemanticModel,
+    def_id: DefId,
+    get: fn(&kermlc_hir::HirMultiplicity) -> &kermlc_hir::MultBound,
+    get_mut: fn(&mut kermlc_hir::HirMultiplicity) -> &mut kermlc_hir::MultBound,
+) -> bool {
+    let mult = model.defs[def_id]
+        .multiplicity
+        .as_ref()
+        .expect("caller checked is_some");
+    let segments = match get(mult) {
+        kermlc_hir::MultBound::Ref(nr) if nr.resolution == ResolutionState::Unresolved => {
+            nr.segments.clone()
+        }
+        _ => return false,
+    };
+
+    let Some(resolved) = try_resolve_name(model, def_id, &segments) else {
+        return false;
+    };
+
+    let bound = get_mut(
+        model.defs[def_id]
+            .multiplicity
+            .as_mut()
+            .expect("caller checked is_some"),
+    );
+    if let Some(nr) = bound.as_name_ref_mut() {
+        nr.resolution = ResolutionState::Resolved(resolved);
+        return true;
+    }
+    false
 }
 
 /// Try to resolve a multi-segment name from the perspective of `scope`.

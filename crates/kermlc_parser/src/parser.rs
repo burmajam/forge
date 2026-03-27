@@ -607,7 +607,16 @@ impl<'a> Parser<'a> {
             TokenKind::IntLiteral => {
                 let tok = self.bump();
                 let text = self.text(tok.span);
-                let value = text.parse::<u64>().unwrap_or(0);
+                let value = match text.parse::<u64>() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        self.sink.emit(
+                            Diagnostic::error("integer literal out of range")
+                                .with_label(Label::primary(tok.span, "exceeds u64::MAX")),
+                        );
+                        0
+                    }
+                };
                 Some(Expr::IntLiteral {
                     value,
                     span: tok.span,

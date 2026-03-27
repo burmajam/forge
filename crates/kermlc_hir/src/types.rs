@@ -64,6 +64,16 @@ pub enum MultBound {
     Ref(NameRef),
 }
 
+impl MultBound {
+    pub fn as_name_ref_mut(&mut self) -> Option<&mut NameRef> {
+        if let MultBound::Ref(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+}
+
 /// Multiplicity bounds in the HIR.
 #[derive(Clone, Debug)]
 pub struct HirMultiplicity {

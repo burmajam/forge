@@ -209,10 +209,16 @@ fn mult_bound_to_json(
                     "reference": name,
                 })
             }
-            None => json!({
-                "@type": "FeatureReferenceExpression",
-                "reference": null,
-            }),
+            None => {
+                debug_assert!(
+                    false,
+                    "MultBound::Ref should be resolved before serialization"
+                );
+                json!({
+                    "@type": "FeatureReferenceExpression",
+                    "reference": null,
+                })
+            }
         },
     }
 }

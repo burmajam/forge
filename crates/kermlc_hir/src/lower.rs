@@ -222,7 +222,9 @@ fn lower_expr_to_bound(expr: &kermlc_ast::Expr) -> MultBound {
         kermlc_ast::Expr::Name { name } => {
             MultBound::Ref(NameRef::unresolved(name.segments.clone(), name.span))
         }
-        kermlc_ast::Expr::BinOp { .. } => MultBound::Exact(0),
+        kermlc_ast::Expr::BinOp { .. } => {
+            unreachable!("BinOp cannot appear in multiplicity bounds per KerML spec")
+        }
     }
 }
 
