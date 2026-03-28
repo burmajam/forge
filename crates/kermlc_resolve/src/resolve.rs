@@ -321,7 +321,7 @@ fn resolve_chains_for(model: &mut SemanticModel, def_id: DefId) -> bool {
         }
 
         if i == 0 {
-            // First segment: scope-based resolution (as before)
+            // First segment: scope-based resolution
             let segments =
                 model.defs[def_id].chain_segments[0].segments.clone();
             if let Some(resolved) =
@@ -332,51 +332,28 @@ fn resolve_chains_for(model: &mut SemanticModel, def_id: DefId) -> bool {
                 changed = true;
             }
         } else {
-            // Subsequent segments: type-directed via find_member
-            let prev_resolution =
-                model.defs[def_id].chain_segments[i - 1].resolution.clone();
-            let prev_def = match prev_resolution {
-                ResolutionState::Resolved(id) => id,
-                _ => break,
-            };
-
-            // Get the type of the previous segment
-            let prev_type_ref = match &model.defs[prev_def].type_ref {
-                Some(tr) => tr.resolution.clone(),
-                None => break,
-            };
-            let type_def = match prev_type_ref {
-                ResolutionState::Resolved(id) => id,
-                _ => break,
-            };
-
-            // Look up this segment as a member of that type
-            let seg_name =
-                model.defs[def_id].chain_segments[i].segments[0];
-            if let Some(found) =
-                crate::scope::find_member(model, type_def, seg_name)
-            {
-                model.defs[def_id].chain_segments[i].resolution =
-                    ResolutionState::Resolved(found);
-                changed = true;
-            } else if model.defs[type_def].type_checked {
-                model.defs[def_id].chain_segments[i].resolution =
-                    ResolutionState::Error;
-                changed = true;
-                break;
-            } else {
-                break;
+            match resolve_chain_segment(model, def_id, i) {
+                ChainStepResult::Resolved(found) => {
+                    model.defs[def_id].chain_segments[i].resolution =
+                        ResolutionState::Resolved(found);
+                    changed = true;
+                }
+                ChainStepResult::NotFound => {
+                    model.defs[def_id].chain_segments[i].resolution =
+                        ResolutionState::Error;
+                    changed = true;
+                    break;
+                }
+                ChainStepResult::Defer => break,
             }
         }
     }
 
-    // If all segments resolved, set chain_result to the last one
-    let all_resolved = (0..count).all(|i| {
-        matches!(
-            model.defs[def_id].chain_segments[i].resolution,
-            ResolutionState::Resolved(_)
-        )
-    });
+    // If all segments resolved, set chain_result
+    let all_resolved = model.defs[def_id]
+        .chain_segments
+        .iter()
+        .all(|seg| seg.is_resolved());
     if all_resolved && model.defs[def_id].chain_result.is_none() {
         if let ResolutionState::Resolved(last) =
             model.defs[def_id].chain_segments[count - 1].resolution
@@ -387,6 +364,48 @@ fn resolve_chains_for(model: &mut SemanticModel, def_id: DefId) -> bool {
     }
 
     changed
+}
+
+enum ChainStepResult {
+    Resolved(DefId),
+    NotFound,
+    Defer,
+}
+
+/// Resolve chain segment `[i]` as a member of the type of segment
+/// `[i-1]`. Returns the resolution outcome.
+fn resolve_chain_segment(
+    model: &SemanticModel,
+    def_id: DefId,
+    i: usize,
+) -> ChainStepResult {
+    let prev_def = match model.defs[def_id].chain_segments[i - 1].resolution
+    {
+        ResolutionState::Resolved(id) => id,
+        ResolutionState::Unresolved
+        | ResolutionState::InProgress
+        | ResolutionState::Error => return ChainStepResult::Defer,
+    };
+
+    let type_def = match &model.defs[prev_def].type_ref {
+        Some(tr) => match tr.resolution {
+            ResolutionState::Resolved(id) => id,
+            ResolutionState::Unresolved
+            | ResolutionState::InProgress
+            | ResolutionState::Error => return ChainStepResult::Defer,
+        },
+        None => return ChainStepResult::Defer,
+    };
+
+    let seg_name = model.defs[def_id].chain_segments[i].segments[0];
+    if let Some(found) = crate::scope::find_member(model, type_def, seg_name)
+    {
+        ChainStepResult::Resolved(found)
+    } else if model.defs[type_def].type_checked {
+        ChainStepResult::NotFound
+    } else {
+        ChainStepResult::Defer
+    }
 }
 
 fn resolve_multiplicity_refs_for(model: &mut SemanticModel, def_id: DefId) -> bool {
@@ -789,6 +808,49 @@ mod tests {
         assert!(
             sink.has_errors(),
             "unresolved chain member should produce error"
+        );
+    }
+
+    #[test]
+    fn resolve_chain_through_inherited_feature() {
+        let src = "\
+            package P {\
+                type A { feature x : A; }\
+                type B :> A {}\
+                type Root {\
+                    feature b : B;\
+                    feature bx chains b.x;\
+                }\
+            }";
+        let (mut model, mut interner, mut sink) = parse_and_lower(src);
+        let stdlib =
+            kermlc_hir::load_stdlib(&mut model, &mut interner);
+        kermlc_hir::add_implicit_specializations(&mut model, &stdlib);
+
+        for _ in 0..100 {
+            let r =
+                resolve_pass(&mut model, &interner, &mut sink);
+            let t = kermlc_typeck::typecheck_pass(
+                &mut model, &interner, &mut sink,
+            );
+            if !r && !t {
+                break;
+            }
+        }
+        emit_unresolved_errors(&model, &interner, &mut sink);
+
+        assert!(
+            !sink.has_errors(),
+            "chain through inherited feature should resolve: {:?}",
+            sink.diagnostics()
+        );
+
+        let pkg = model.roots[0];
+        let root = model.defs[pkg].children[2]; // Root
+        let bx = model.defs[root].children[1]; // bx
+        assert!(
+            model.defs[bx].chain_result.is_some(),
+            "chain_result should be set for inherited chain"
         );
     }
 }
