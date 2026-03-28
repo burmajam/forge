@@ -57,6 +57,19 @@ pub fn emit_unresolved_errors(
         }
         for chain_seg in &def.chain_segments {
             emit_unresolved(chain_seg, "chain segment", interner, sink);
+            if chain_seg.resolution == ResolutionState::Error {
+                let name_str =
+                    segments_to_string(&chain_seg.segments, interner);
+                sink.emit(
+                    Diagnostic::error(format!(
+                        "unresolved chain segment `{name_str}`"
+                    ))
+                    .with_label(Label::primary(
+                        chain_seg.span,
+                        "member not found in type",
+                    )),
+                );
+            }
         }
         if let Some(ref mult) = def.multiplicity {
             for bound in [&mult.lower, &mult.upper] {
@@ -293,12 +306,87 @@ fn resolve_type_ref_for(model: &mut SemanticModel, def_id: DefId) -> bool {
 }
 
 fn resolve_chains_for(model: &mut SemanticModel, def_id: DefId) -> bool {
-    resolve_name_ref_vec(
-        model,
-        def_id,
-        |d| &d.chain_segments,
-        |d| &mut d.chain_segments,
-    )
+    let count = model.defs[def_id].chain_segments.len();
+    if count == 0 {
+        return false;
+    }
+
+    let mut changed = false;
+
+    for i in 0..count {
+        if model.defs[def_id].chain_segments[i].resolution
+            != ResolutionState::Unresolved
+        {
+            continue;
+        }
+
+        if i == 0 {
+            // First segment: scope-based resolution (as before)
+            let segments =
+                model.defs[def_id].chain_segments[0].segments.clone();
+            if let Some(resolved) =
+                try_resolve_name(model, def_id, &segments)
+            {
+                model.defs[def_id].chain_segments[0].resolution =
+                    ResolutionState::Resolved(resolved);
+                changed = true;
+            }
+        } else {
+            // Subsequent segments: type-directed via find_member
+            let prev_resolution =
+                model.defs[def_id].chain_segments[i - 1].resolution.clone();
+            let prev_def = match prev_resolution {
+                ResolutionState::Resolved(id) => id,
+                _ => break,
+            };
+
+            // Get the type of the previous segment
+            let prev_type_ref = match &model.defs[prev_def].type_ref {
+                Some(tr) => tr.resolution.clone(),
+                None => break,
+            };
+            let type_def = match prev_type_ref {
+                ResolutionState::Resolved(id) => id,
+                _ => break,
+            };
+
+            // Look up this segment as a member of that type
+            let seg_name =
+                model.defs[def_id].chain_segments[i].segments[0];
+            if let Some(found) =
+                crate::scope::find_member(model, type_def, seg_name)
+            {
+                model.defs[def_id].chain_segments[i].resolution =
+                    ResolutionState::Resolved(found);
+                changed = true;
+            } else if model.defs[type_def].type_checked {
+                model.defs[def_id].chain_segments[i].resolution =
+                    ResolutionState::Error;
+                changed = true;
+                break;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // If all segments resolved, set chain_result to the last one
+    let all_resolved = (0..count).all(|i| {
+        matches!(
+            model.defs[def_id].chain_segments[i].resolution,
+            ResolutionState::Resolved(_)
+        )
+    });
+    if all_resolved && model.defs[def_id].chain_result.is_none() {
+        if let ResolutionState::Resolved(last) =
+            model.defs[def_id].chain_segments[count - 1].resolution
+        {
+            model.defs[def_id].chain_result = Some(last);
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn resolve_multiplicity_refs_for(model: &mut SemanticModel, def_id: DefId) -> bool {
@@ -573,6 +661,134 @@ mod tests {
             has_mult_error,
             "error should mention 'multiplicity bound': {:?}",
             sink.diagnostics()
+        );
+    }
+
+    #[test]
+    fn resolve_chain_type_directed() {
+        let src = "\
+            package P {\
+                type Engine { feature cylinders : Engine; }\
+                type Vehicle { feature engine : Engine; }\
+                type Fleet {\
+                    feature vehicles : Vehicle;\
+                    feature v_eng chains vehicles.engine;\
+                }\
+            }";
+        let (mut model, mut interner, mut sink) = parse_and_lower(src);
+        let stdlib =
+            kermlc_hir::load_stdlib(&mut model, &mut interner);
+        kermlc_hir::add_implicit_specializations(&mut model, &stdlib);
+
+        for _ in 0..100 {
+            let r =
+                resolve_pass(&mut model, &interner, &mut sink);
+            let t = kermlc_typeck::typecheck_pass(
+                &mut model, &interner, &mut sink,
+            );
+            if !r && !t {
+                break;
+            }
+        }
+        emit_unresolved_errors(&model, &interner, &mut sink);
+
+        assert!(
+            !sink.has_errors(),
+            "chain should resolve: {:?}",
+            sink.diagnostics()
+        );
+
+        let pkg = model.roots[0];
+        let fleet = model.defs[pkg].children[2]; // Fleet
+        let v_eng = model.defs[fleet].children[1]; // v_eng
+        assert!(
+            model.defs[v_eng].chain_result.is_some(),
+            "chain_result should be set after resolution"
+        );
+    }
+
+    #[test]
+    fn resolve_chain_three_steps() {
+        let src = "\
+            package P {\
+                type C {}\
+                type B { feature c : C; }\
+                type A { feature b : B; }\
+                type Root {\
+                    feature a : A;\
+                    feature abc chains a.b.c;\
+                }\
+            }";
+        let (mut model, mut interner, mut sink) = parse_and_lower(src);
+        let stdlib =
+            kermlc_hir::load_stdlib(&mut model, &mut interner);
+        kermlc_hir::add_implicit_specializations(&mut model, &stdlib);
+
+        for _ in 0..100 {
+            let r =
+                resolve_pass(&mut model, &interner, &mut sink);
+            let t = kermlc_typeck::typecheck_pass(
+                &mut model, &interner, &mut sink,
+            );
+            if !r && !t {
+                break;
+            }
+        }
+        emit_unresolved_errors(&model, &interner, &mut sink);
+
+        assert!(
+            !sink.has_errors(),
+            "3-step chain should resolve: {:?}",
+            sink.diagnostics()
+        );
+
+        let pkg = model.roots[0];
+        let root = model.defs[pkg].children[3]; // Root
+        let abc = model.defs[root].children[1]; // abc
+
+        assert!(
+            model.defs[abc]
+                .chain_segments
+                .iter()
+                .all(|s| s.is_resolved()),
+            "all chain segments should be resolved"
+        );
+        assert!(
+            model.defs[abc].chain_result.is_some(),
+            "chain_result should be set"
+        );
+    }
+
+    #[test]
+    fn resolve_chain_unresolved_member() {
+        let src = "\
+            package P {\
+                type A { feature x : A; }\
+                type Root {\
+                    feature a : A;\
+                    feature bad chains a.nonexistent;\
+                }\
+            }";
+        let (mut model, mut interner, mut sink) = parse_and_lower(src);
+        let stdlib =
+            kermlc_hir::load_stdlib(&mut model, &mut interner);
+        kermlc_hir::add_implicit_specializations(&mut model, &stdlib);
+
+        for _ in 0..100 {
+            let r =
+                resolve_pass(&mut model, &interner, &mut sink);
+            let t = kermlc_typeck::typecheck_pass(
+                &mut model, &interner, &mut sink,
+            );
+            if !r && !t {
+                break;
+            }
+        }
+        emit_unresolved_errors(&model, &interner, &mut sink);
+
+        assert!(
+            sink.has_errors(),
+            "unresolved chain member should produce error"
         );
     }
 }
