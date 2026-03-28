@@ -10,3 +10,4 @@ kermlc_hir = { workspace = true }
 
 [dev-dependencies]
 kermlc_parser = { workspace = true }
+kermlc_typeck = { workspace = true }
