@@ -12,3 +12,6 @@
 # Temporary/local files
 proba.jsonl
 .venv/
+
+# PDF→Markdown conversion tooling (local venv + models, not redistributed)
+/tools/pdfconv/

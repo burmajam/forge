@@ -109,7 +109,7 @@ The `vendor/SysML-v2-Release/` folder contains the official OMG specification ma
 Use `bnf/KerML-textual-bnf.kebnf` as the authoritative grammar reference. Use `kerml/src/examples/` for integration test sources. Use `sysml.library/Kernel Libraries/Kernel Semantic Library/` for B2 (stdlib-from-files) implementation.
 
 IMPORTANT: 
-- The big spec PDFs live in `vendor/SysML-v2-Release/doc/`. Text-only Markdown conversions are in `docs/spec/*.md` — use these for quick search/reference. Diagrams and code formatting are lost in that Markdown: read figures from the source PDF directly via the Read tool's `pages` parameter, or from the per-figure PNGs in `docs/spec/kermlc/`.
+- The big spec PDFs live in `vendor/SysML-v2-Release/doc/`. High-fidelity Markdown conversions (Marker, code blocks fenced + figures extracted) are in `docs/spec/<name>/<name>.md` — use these for quick search/reference. Each folder also holds the linked `_page_*.jpeg` figures and a `_meta.json` (page stats + TOC). See `docs/spec/README.md` for provenance and how to regenerate. For ambiguous figures, fall back to the source PDF via the Read tool's `pages` parameter.
 - `vendor/SysML-v2-Release/bnf/KerML-textual-bnf.kebnf` contains grammar rules.
 - `vendor/KerML-v1/` holds the KerML 1.0 kernel Data Type + Function libraries (`.kerml` + `.kpar` archives) — source material for B2 (stdlib-from-files) and D3 (KPAR).
 
@@ -130,3 +130,17 @@ Multiplicity   = '[' Expr '..' Expr ']' | '[' Expr ']'
 ```
 
 Feature directions (`in`, `out`, `inout`) are parsed and stored. Conjugation flips `in` <-> `out` at type level: the target is stored in `Def.conjugation`, and directions are flipped when resolving a feature's direction (`conjugate_dir`) over the type's `inherited_memberships`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as GitHub issues in `mjaric/forge` via the `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical triage vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); `wontfix` already exists, the rest are created on first use. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
