@@ -23,7 +23,7 @@ not entitle you to payment.
 ## How to contribute
 
 1. **Open an issue first** for anything non-trivial, so we can agree on the approach before you
-   invest time. Issues are tracked at [github.com/mjaric/forge/issues](https://github.com/mjaric/forge/issues).
+   invest time. Issues are tracked at [github.com/kadabra-ai/forge/issues](https://github.com/kadabra-ai/forge/issues).
 2. **Fork and branch** — never work on `main`. Use a descriptive branch name.
 3. **Make your change**, keeping it to one logical change per pull request.
 4. **Run the checks** before pushing:

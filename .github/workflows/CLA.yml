@@ -1,0 +1,112 @@
+name: CLA
+
+# Minimal CLA check — no third-party action, no PAT.
+# Uses only the GitHub-maintained actions/github-script and the per-run GITHUB_TOKEN
+# (scoped to this repository, expires when the job ends). Signatures are stored in
+# signatures/cla.json on the default branch. This workflow never checks out PR code.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] required to comment/set status on fork PRs; no PR code is checked out
+    types: [opened, reopened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: write
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  cla:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const SIGN_PHRASE = 'i have read the cla document and i hereby sign the cla';
+            const SIG_PATH = 'signatures/cla.json';
+            const CLA_URL = 'https://github.com/kadabra-ai/forge/blob/main/CLA.md';
+            const STATUS_CONTEXT = 'license/cla';
+            const { owner, repo } = context.repo;
+            const branch = context.payload.repository.default_branch;
+
+            async function loadSignatures() {
+              try {
+                const res = await github.rest.repos.getContent({ owner, repo, path: SIG_PATH, ref: branch });
+                const json = JSON.parse(Buffer.from(res.data.content, 'base64').toString('utf8'));
+                return { sha: res.data.sha, data: json };
+              } catch (err) {
+                if (err.status === 404) return { sha: undefined, data: { signedContributors: [] } };
+                throw err;
+              }
+            }
+
+            async function saveSignatures(store, message) {
+              const content = Buffer.from(JSON.stringify(store.data, null, 2) + '\n').toString('base64');
+              await github.rest.repos.createOrUpdateFileContents({ owner, repo, path: SIG_PATH, message, content, sha: store.sha, branch });
+            }
+
+            function hasSigned(store, login) {
+              return store.data.signedContributors.some((c) => c.login.toLowerCase() === login.toLowerCase());
+            }
+
+            async function setStatus(sha, signed) {
+              await github.rest.repos.createCommitStatus({
+                owner, repo, sha,
+                state: signed ? 'success' : 'failure',
+                context: STATUS_CONTEXT,
+                description: signed ? 'CLA signed by all contributors' : 'CLA not signed by the PR author',
+              });
+            }
+
+            if (context.eventName === 'issue_comment') {
+              const issue = context.payload.issue;
+              if (!issue.pull_request) return;
+              if ((context.payload.comment.body || '').trim().toLowerCase() !== SIGN_PHRASE) return;
+
+              const signer = context.payload.comment.user;
+              const pr = (await github.rest.pulls.get({ owner, repo, pull_number: issue.number })).data;
+
+              let store = await loadSignatures();
+              if (!hasSigned(store, signer.login)) {
+                store.data.signedContributors.push({
+                  login: signer.login,
+                  id: signer.id,
+                  pull_request_no: issue.number,
+                  comment_id: context.payload.comment.id,
+                  created_at: new Date().toISOString(),
+                });
+                await saveSignatures(store, `chore(cla): @${signer.login} signed the CLA (#${issue.number})`);
+                store = await loadSignatures();
+              }
+              await setStatus(pr.head.sha, hasSigned(store, pr.user.login));
+              return;
+            }
+
+            const pr = context.payload.pull_request;
+            const store = await loadSignatures();
+            const signed = hasSigned(store, pr.user.login);
+            await setStatus(pr.head.sha, signed);
+
+            if (!signed) {
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
+              const alreadyAsked = comments.some(
+                (c) => c.user.login === 'github-actions[bot]' && (c.body || '').includes('Contributor License Agreement'),
+              );
+              if (!alreadyAsked) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: pr.number,
+                  body: [
+                    `Thank you for your pull request, @${pr.user.login}!`,
+                    '',
+                    `Before it can be merged, please read our [Contributor License Agreement](${CLA_URL}) and sign it by posting **exactly** this comment on this PR:`,
+                    '',
+                    '> I have read the CLA Document and I hereby sign the CLA',
+                  ].join('\n'),
+                });
+              }
+            }

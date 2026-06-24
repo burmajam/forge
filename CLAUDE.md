@@ -135,7 +135,7 @@ Feature directions (`in`, `out`, `inout`) are parsed and stored. Conjugation fli
 
 ### Issue tracker
 
-Issues and PRDs are tracked as GitHub issues in `mjaric/forge` via the `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked as GitHub issues in `kadabra-ai/forge` via the `gh` CLI. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
