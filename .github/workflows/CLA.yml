@@ -3,7 +3,8 @@ name: CLA
 # Minimal CLA check — no third-party action, no PAT.
 # Uses only the GitHub-maintained actions/github-script and the per-run GITHUB_TOKEN
 # (scoped to this repository, expires when the job ends). Signatures are stored in
-# signatures/cla.json on the default branch. This workflow never checks out PR code.
+# signatures/cla.json on the unprotected `cla-signatures` branch, so the protected
+# default branch is never written to. This workflow never checks out PR code.
 on:
   pull_request_target: # zizmor: ignore[dangerous-triggers] required to comment/set status on fork PRs; no PR code is checked out
     types: [opened, reopened, synchronize]
@@ -32,7 +33,7 @@ jobs:
             const CLA_URL = 'https://github.com/kadabra-ai/forge/blob/main/CLA.md';
             const STATUS_CONTEXT = 'license/cla';
             const { owner, repo } = context.repo;
-            const branch = context.payload.repository.default_branch;
+            const branch = 'cla-signatures';
 
             async function loadSignatures() {
               try {
@@ -52,6 +53,26 @@ jobs:
 
             function hasSigned(store, login) {
               return store.data.signedContributors.some((c) => c.login.toLowerCase() === login.toLowerCase());
+            }
+
+            // Org members already hold the rights a CLA grants, and bots cannot agree to
+            // one. Membership is managed in GitHub org settings (admin only), so there is
+            // no in-repo list to tamper with. NOTE: GITHUB_TOKEN sees only *public* org
+            // membership — private members must make membership public or sign once.
+            async function isOrgMember(login) {
+              try {
+                await github.rest.orgs.checkMembershipForUser({ org: owner, username: login });
+                return true;
+              } catch (err) {
+                if (err.status === 404 || err.status === 302) return false;
+                throw err;
+              }
+            }
+
+            async function isCleared(store, user) {
+              if (user.type === 'Bot') return true;
+              if (hasSigned(store, user.login)) return true;
+              return isOrgMember(user.login);
             }
 
             async function setStatus(sha, signed) {
@@ -83,13 +104,13 @@ jobs:
                 await saveSignatures(store, `chore(cla): @${signer.login} signed the CLA (#${issue.number})`);
                 store = await loadSignatures();
               }
-              await setStatus(pr.head.sha, hasSigned(store, pr.user.login));
+              await setStatus(pr.head.sha, await isCleared(store, pr.user));
               return;
             }
 
             const pr = context.payload.pull_request;
             const store = await loadSignatures();
-            const signed = hasSigned(store, pr.user.login);
+            const signed = await isCleared(store, pr.user);
             await setStatus(pr.head.sha, signed);
 
             if (!signed) {
